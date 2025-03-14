@@ -1,4 +1,4 @@
-def xor_decrypt(ciphertext, key=0x41):
+def xor_decrypt(ciphertext, key=0x42):
     decrypted = bytearray()
     for c in ciphertext:
         decrypted.append(c ^ key)
