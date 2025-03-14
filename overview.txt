@@ -1,0 +1,97 @@
+This is the overall process of the extracted room
+
+1. We are given a traffic.pcapng file
+
+2. I opened the file in wireshark and then found out that we have 2 ip address of intereset.
+They are 10.10.45.95 and 10.10.94.106. By further analysing the pcapng file i found out that 
+10.10.94.106 is the server that have 3 ports opened while 10.10.45.95 is the client.
+
+3. Now the client 10.10.45.95 requested a powershell script that goes by the name xxxmmdcclxxxiv.ps1
+fron the server on port 1339.
+
+4. Now the client sends a bunch of tcp traffic to the server on port 1337 
+
+5. Finally a small amount of traffic to the server on port 1338.
+
+When evaluating the powershell script, i found out that the script was obfuscated. After some time
+i deobfuscated the script and found out that the script is dumping the keypass process and then it first xor encrypted the
+data with a hexkey (0x41) and then base64 encoded the data and finally tranmsmitted to the server on port
+1337.
+
+The script then sends a file called Database1337 to the server on port 1338 which is xor encrypted using hexkey(0x42)
+and then base64 encoded.
+
+//////////////////////////////////////////////////////////////////////////////
+
+So our first task is to extract the "dumped keypass process data"
+
+commands : 
+
+1. "tshark -r traffic.pcapng -Y "tcp.dstport == 1337" -T fields -e data | xxd -p -r > 539.dmp"
+
+2. "tshark -r traffic.pcapng -Y "tcp.dstport == 1338" -T fields -e data | xxd -p -r > Database1337"
+
+Here we used the tshark cmd tool with arguments -r to read from a file, -Y to use display filter for destination port 1337, 
+-T to set the format of the output when viewing decoded packet data, finally -e to select a particular field called data
+then we piped the output to "xxd with arguments" -p which will output in postscript plain hexdump style
+and -r which will convert hexdump into binary.
+
+At this time we got two files called 539.dmp and Database1337.
+
+Now i used a b64_decode_dmp.py script to decode this file "539.dmp".
+
+The script will first read the 539.dmp in normal read mode
+and then perform a base64 decode operation on the read data.
+Finally the script will open a new file called "1337.dmp" in "wb" mode and write
+the decoded data to this newly opened file.
+
+At this time we have the original dump file "539.dmp" and the decoded dump "1337.dmp".
+
+Now i used a b64_decode_db.py script to decode this file "Database1337"
+
+The script will first read the Database1337 in normal read mode
+and then perform a base64 decode operation on the read data.
+Finally the script will open a new file called "Database1337" in "wb" mode and write
+the decoded data to this newly opened file.
+
+
+At this time we have the original dump file "Database1337" and the decoded dump "Database1337".
+
+//////////////////////////////////////////////////////////////////////////////
+
+Now we used a script called xor-decryption_dmp.py to xor decrypt the 1337.dmp file.
+This script outputted the file xor_decrypted_1337.dmp.
+
+Then we used a script called xor-decryption_db.py to xor decrypt the Database1337 file.
+This script outputted the file Database1337.kdbx.
+
+//////////////////////////////////////////////////////////////////////////////
+
+Now we used the CVE-2023-32784 to extract the master password from dump file xor_decrypted_1337.dmp.
+for poc we used the script from this git repo : https://github.com/z-jxy/keepass_dump.git
+
+command :  python3 keepass_dump.py -f xor_decrypted_1337.dmp --skip --debug
+
+But this script will not give us the first word of the password
+so to fix that we wrote a "password-append.py" script to apped all possible characters to the beginning of the 
+extracted password from memory dump.
+
+The script "password-append.py" produced a passlist.txt file.
+
+Now we used keepass2john tool to extract the password hash from the "Database1337.kdbx" file.
+
+command : keepass2john Database1337.kdbx > hash.txt
+
+Finally we used john the ripper to crack the password hash
+
+command : john hash.txt --wordlist=passlist.txt
+
+This gave us the master password to unlock the Database1337.kdbx file.
+
+Now we used a tool called kpcli to interact with the Database1337.kdbx file
+
+command : apt install kpclli - to install the kpcli tool
+
+command : kpcli --kdb Database1337.kdbx - to ulock the dataase file.
+
+Now to get the final flag we can utilise the built in command in kpcli to reveal it.
